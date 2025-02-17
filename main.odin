@@ -40,24 +40,37 @@ main :: proc() {
 	}
 
 	vertices := []Vertex_Data {
-		{ pos = {-0.5, -0.5, 0}, color = {1,0,0,1} },
-		{ pos = {   0,  0.5, 0}, color = {0,1,1,1} },
-		{ pos = { 0.5, -0.5, 0}, color = {1,0,1,1} },
+		{ pos = {-0.5,  0.5, 0}, color = {1,0,0,1} }, // tl
+		{ pos = { 0.5,  0.5, 0}, color = {0,1,1,1} }, // tr
+		{ pos = {-0.5, -0.5, 0}, color = {1,0,1,1} }, // bl
+		{ pos = { 0.5, -0.5, 0}, color = {1,0,1,1} }, // br
 	}
 	vertices_byte_size := len(vertices) * size_of(vertices[0])
 
+	indices := []u16 {
+		0, 1, 2,
+		2, 1, 3,
+	}
+	indices_byte_size := len(indices) * size_of(indices[0])
+
 	vertex_buf := sdl.CreateGPUBuffer(gpu, {
-		usage = {.VERTEX },
+		usage = {.VERTEX},
 		size = u32(vertices_byte_size)
+	})
+
+	index_buf := sdl.CreateGPUBuffer(gpu, {
+		usage = {.INDEX},
+		size = u32(indices_byte_size)
 	})
 
 	transfer_buf := sdl.CreateGPUTransferBuffer(gpu, {
 		usage = .UPLOAD,
-		size = u32(vertices_byte_size)
+		size = u32(vertices_byte_size + indices_byte_size)
 	})
 
-	transfer_mem := sdl.MapGPUTransferBuffer(gpu, transfer_buf, false)
+	transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buf, false)
 	mem.copy(transfer_mem, raw_data(vertices), vertices_byte_size)
+	mem.copy(transfer_mem[vertices_byte_size:], raw_data(indices), indices_byte_size)
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buf)
 
 	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
@@ -67,6 +80,12 @@ main :: proc() {
 	sdl.UploadToGPUBuffer(copy_pass,
 		{transfer_buffer = transfer_buf},
 		{buffer = vertex_buf, size = u32(vertices_byte_size)},
+		false
+	)
+
+	sdl.UploadToGPUBuffer(copy_pass,
+		{transfer_buffer = transfer_buf, offset = u32(vertices_byte_size)},
+		{buffer = index_buf, size = u32(indices_byte_size)},
 		false
 	)
 
@@ -167,8 +186,9 @@ main :: proc() {
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, nil)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 			sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = vertex_buf }), 1)
+			sdl.BindGPUIndexBuffer(render_pass, { buffer = index_buf }, ._16BIT)
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+			sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
 			sdl.EndGPURenderPass(render_pass)
 		}
 
