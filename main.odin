@@ -12,6 +12,9 @@ default_context: runtime.Context
 frag_shader_code := #load("shader.spv.frag")
 vert_shader_code := #load("shader.spv.vert")
 
+Vec3 :: [3]f32
+Vec2 :: [2]f32
+
 main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
@@ -46,28 +49,33 @@ main :: proc() {
 		num_levels = 1,
 	})
 
-	Vec3 :: [3]f32
-
 	Vertex_Data :: struct {
 		pos: Vec3,
 		color: sdl.FColor,
-		uv: [2]f32,
+		uv: Vec2,
 	}
 
 	WHITE := sdl.FColor { 1, 1, 1, 1 }
 
-	vertices := []Vertex_Data {
-		{ pos = {-0.5,  0.5, 0}, color = WHITE, uv = {0,0} }, // tl
-		{ pos = { 0.5,  0.5, 0}, color = WHITE, uv = {1,0} }, // tr
-		{ pos = {-0.5, -0.5, 0}, color = WHITE, uv = {0,1} }, // bl
-		{ pos = { 0.5, -0.5, 0}, color = WHITE, uv = {1,1} }, // br
-	}
-	vertices_byte_size := len(vertices) * size_of(vertices[0])
+	obj_data := obj_load("sedan-sports.obj")
 
-	indices := []u16 {
-		0, 1, 2,
-		2, 1, 3,
+	vertices := make([]Vertex_Data, len(obj_data.faces))
+	indices := make([]u16, len(obj_data.faces))
+	
+	for face, i in obj_data.faces {
+		vertices[i] = {
+			pos = obj_data.positions[face.pos],
+			color = WHITE,
+			uv = obj_data.uvs[face.uv],
+		}
+		indices[i] = u16(i)
 	}
+
+	obj_destroy(obj_data)
+
+	num_indices := len(indices)
+
+	vertices_byte_size := len(vertices) * size_of(vertices[0])
 	indices_byte_size := len(indices) * size_of(indices[0])
 
 	vertex_buf := sdl.CreateGPUBuffer(gpu, {
@@ -89,6 +97,9 @@ main :: proc() {
 	mem.copy(transfer_mem, raw_data(vertices), vertices_byte_size)
 	mem.copy(transfer_mem[vertices_byte_size:], raw_data(indices), indices_byte_size)
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buf)
+
+	delete(indices)
+	delete(vertices)
 
 	tex_transfer_buf := sdl.CreateGPUTransferBuffer(gpu, {
 		usage = .UPLOAD,
@@ -228,7 +239,7 @@ main :: proc() {
 			sdl.BindGPUIndexBuffer(render_pass, { buffer = index_buf }, ._16BIT)
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
 			sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = texture, sampler = sampler}), 1)
-			sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
+			sdl.DrawGPUIndexedPrimitives(render_pass, u32(num_indices), 1, 0, 0, 0)
 			sdl.EndGPURenderPass(render_pass)
 		}
 
