@@ -37,7 +37,8 @@ main :: proc() {
 	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, num_uniform_buffers = 0, num_samplers = 1)
 
 	img_size: [2]i32
-	pixels := stbi.load("cobblestone_1.png", &img_size.x, &img_size.y, nil, 4); assert(pixels != nil)
+	// stbi.set_flip_vertically_on_load(1)
+	pixels := stbi.load("colormap.png", &img_size.x, &img_size.y, nil, 4); assert(pixels != nil)
 	pixels_byte_size := img_size.x * img_size.y * 4
 
 	texture := sdl.CreateGPUTexture(gpu, {
@@ -45,6 +46,20 @@ main :: proc() {
 		usage = {.SAMPLER},
 		width = u32(img_size.x),
 		height = u32(img_size.y),
+		layer_count_or_depth = 1,
+		num_levels = 1,
+	})
+	
+	win_size: [2]i32
+	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); assert(ok)
+
+	DEPTH_TEXTURE_FORMAT :: sdl.GPUTextureFormat.D24_UNORM
+
+	depth_texture := sdl.CreateGPUTexture(gpu, {
+		format = DEPTH_TEXTURE_FORMAT,
+		usage = {.DEPTH_STENCIL_TARGET},
+		width = u32(win_size.x),
+		height = u32(win_size.y),
 		layer_count_or_depth = 1,
 		num_levels = 1,
 	})
@@ -57,16 +72,17 @@ main :: proc() {
 
 	WHITE := sdl.FColor { 1, 1, 1, 1 }
 
-	obj_data := obj_load("sedan-sports.obj")
+	obj_data := obj_load("tractor-police.obj")
 
 	vertices := make([]Vertex_Data, len(obj_data.faces))
 	indices := make([]u16, len(obj_data.faces))
 	
 	for face, i in obj_data.faces {
+		uv := obj_data.uvs[face.uv]
 		vertices[i] = {
 			pos = obj_data.positions[face.pos],
 			color = WHITE,
-			uv = obj_data.uvs[face.uv],
+			uv = {uv.x, 1-uv.y},
 		}
 		indices[i] = u16(i)
 	}
@@ -171,19 +187,23 @@ main :: proc() {
 			num_vertex_attributes = u32(len(vertex_attrs)),
 			vertex_attributes = raw_data(vertex_attrs)
 		},
+		depth_stencil_state = {
+			enable_depth_test = true,
+			enable_depth_write = true,
+			compare_op = .LESS,
+		},
 		target_info = {
 			num_color_targets = 1,
 			color_target_descriptions = &(sdl.GPUColorTargetDescription {
 				format = sdl.GetGPUSwapchainTextureFormat(gpu, window)
-			})
+			}),
+			has_depth_stencil_target = true,
+			depth_stencil_format = DEPTH_TEXTURE_FORMAT,
 		}
 	})
 
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
-
-	win_size: [2]i32
-	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); assert(ok)
 
 	ROTATION_SPEED := linalg.to_radians(f32(90)) 
 	rotation := f32(0)
@@ -220,7 +240,7 @@ main :: proc() {
 		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil); assert(ok)
 
 		rotation += ROTATION_SPEED * delta_time 
-		model_mat := linalg.matrix4_translate_f32({0, 0, -2}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
+		model_mat := linalg.matrix4_translate_f32({0, -1, -3}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
 
 		ubo := UBO {
 			mvp = proj_mat * model_mat,
@@ -233,7 +253,13 @@ main :: proc() {
 				clear_color = {0, 0.2, 0.4, 1},
 				store_op = .STORE
 			}
-			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, nil)
+			depth_target_info := sdl.GPUDepthStencilTargetInfo {
+				texture = depth_texture,
+				load_op = .CLEAR,
+				clear_depth = 1,
+				store_op = .DONT_CARE
+			}
+			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target_info)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 			sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = vertex_buf }), 1)
 			sdl.BindGPUIndexBuffer(render_pass, { buffer = index_buf }, ._16BIT)
