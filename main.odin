@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:log"
 import "core:strings"
 import "core:mem"
+import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
@@ -16,6 +17,20 @@ win_size: [2]i32
 depth_texture: ^sdl.GPUTexture
 pipeline: ^sdl.GPUGraphicsPipeline
 sampler: ^sdl.GPUSampler
+camera: struct {
+	position: Vec3,
+	target: Vec3,
+}
+look: struct {
+	yaw: f32,
+	pitch: f32,
+}
+key_down: #sparse[sdl.Scancode]bool
+mouse_move: Vec2
+
+EYE_HEIGHT :: 1
+MOVE_SPEED :: 5
+LOOK_SENSITIVITY :: 0.3
 
 frag_shader_code := #load("shader.spv.frag")
 vert_shader_code := #load("shader.spv.vert")
@@ -64,6 +79,13 @@ init :: proc() {
 		layer_count_or_depth = 1,
 		num_levels = 1,
 	})
+
+	camera = {
+		position = {0, EYE_HEIGHT, 3},
+		target = {0, EYE_HEIGHT, 0}
+	}
+
+	_ = sdl.SetWindowRelativeMouseMode(window, true)
 }
 
 setup_pipeline :: proc() {
@@ -106,6 +128,10 @@ setup_pipeline :: proc() {
 			enable_depth_write = true,
 			compare_op = .LESS,
 		},
+		rasterizer_state = {
+			cull_mode = .BACK,
+			// fill_mode = .LINE,
+		},
 		target_info = {
 			num_color_targets = 1,
 			color_target_descriptions = &(sdl.GPUColorTargetDescription {
@@ -138,12 +164,12 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 		layer_count_or_depth = 1,
 		num_levels = 1,
 	})
-	
+
 	obj_data := obj_load(mesh_file)
 
 	vertices := make([]Vertex_Data, len(obj_data.faces))
 	indices := make([]u16, len(obj_data.faces))
-	
+
 	for face, i in obj_data.faces {
 		uv := obj_data.uvs[face.uv]
 		vertices[i] = {
@@ -208,7 +234,7 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 		false
 	)
 
-	sdl.UploadToGPUTexture(copy_pass, 
+	sdl.UploadToGPUTexture(copy_pass,
 		{transfer_buffer = tex_transfer_buf},
 		{texture = texture, w = u32(img_size.x), h = u32(img_size.y), d = 1},
 		false
@@ -220,13 +246,38 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 
 	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buf)
 	sdl.ReleaseGPUTransferBuffer(gpu, tex_transfer_buf)
-	
+
 	return {
 		vertex_buf = vertex_buf,
 		index_buf = index_buf,
 		num_indices = u32(num_indices),
 		texture = texture,
 	}
+}
+
+update_camera :: proc(dt: f32) {
+	move_input: Vec2
+	if key_down[.W] do move_input.y = 1
+	else if key_down[.S] do move_input.y = -1
+	if key_down[.A] do move_input.x = -1
+	else if key_down[.D] do move_input.x = 1
+
+	look_input := mouse_move * LOOK_SENSITIVITY
+
+	look.yaw = math.wrap(look.yaw - mouse_move.x, 360)
+	look.pitch = math.clamp(look.pitch - mouse_move.y, -89, 89)
+
+	look_mat := linalg.matrix3_from_yaw_pitch_roll_f32(linalg.to_radians(look.yaw), linalg.to_radians(look.pitch), 0)
+
+	forward := look_mat * Vec3 {0,0,-1}
+	right := look_mat * Vec3 {1,0,0}
+	move_dir := forward * move_input.y + right * move_input.x
+	move_dir.y = 0
+
+	motion := linalg.normalize0(move_dir) * MOVE_SPEED * dt
+
+	camera.position += motion
+	camera.target = camera.position + forward
 }
 
 main :: proc() {
@@ -237,7 +288,7 @@ main :: proc() {
 	setup_pipeline()
 	model := load_model("tractor-police.obj", "colormap.png")
 
-	ROTATION_SPEED := linalg.to_radians(f32(90)) 
+	ROTATION_SPEED := linalg.to_radians(f32(90))
 	rotation := f32(0)
 
 	proj_mat := linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), f32(win_size.x) / f32(win_size.y), 0.0001, 1000)
@@ -250,6 +301,7 @@ main :: proc() {
 
 	main_loop: for {
 		free_all(context.temp_allocator)
+		mouse_move = {}
 
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
@@ -263,21 +315,28 @@ main :: proc() {
 					break main_loop
 				case .KEY_DOWN:
 					if ev.key.scancode == .ESCAPE do break main_loop
+					key_down[ev.key.scancode] = true
+				case .KEY_UP:
+					key_down[ev.key.scancode] = false
+				case .MOUSE_MOTION:
+					mouse_move += {ev.motion.xrel, ev.motion.yrel}
 			}
 		}
 
 		// update game state
-		rotation += ROTATION_SPEED * delta_time 
+		rotation += ROTATION_SPEED * delta_time
+		update_camera(delta_time)
 
 		// render
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
 		swapchain_tex: ^sdl.GPUTexture
 		ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil); assert(ok)
 
-		model_mat := linalg.matrix4_translate_f32({0, -1, -3}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
+		view_mat := linalg.matrix4_look_at_f32(camera.position, camera.target, {0,1,0})
+		model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
 
 		ubo := UBO {
-			mvp = proj_mat * model_mat,
+			mvp = proj_mat * view_mat * model_mat,
 		}
 
 		if swapchain_tex != nil {
