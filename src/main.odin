@@ -268,8 +268,8 @@ update_camera :: proc(dt: f32) {
 
 	look_input := mouse_move * LOOK_SENSITIVITY
 
-	look.yaw = math.wrap(look.yaw - mouse_move.x, 360)
-	look.pitch = math.clamp(look.pitch - mouse_move.y, -89, 89)
+	look.yaw = math.wrap(look.yaw - look_input.x, 360)
+	look.pitch = math.clamp(look.pitch - look_input.y, -89, 89)
 
 	look_mat := linalg.matrix3_from_yaw_pitch_roll_f32(linalg.to_radians(look.yaw), linalg.to_radians(look.pitch), 0)
 
