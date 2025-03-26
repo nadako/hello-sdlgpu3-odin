@@ -18,6 +18,7 @@ import im_sdlgpu "shared:imgui/imgui_impl_sdlgpu3"
 CONTENT_DIR :: "content"
 
 default_context: runtime.Context
+sdl_log_context: runtime.Context
 
 gpu: ^sdl.GPUDevice
 window: ^sdl.Window
@@ -59,24 +60,30 @@ Model :: struct {
 	texture: ^sdl.GPUTexture,
 }
 
+sdl_assert :: proc(ok: bool) {
+	if !ok do log.panicf("SDL Error: {}", sdl.GetError())
+}
+
 init :: proc() {
+	sdl_log_context = context
+	sdl_log_context.logger.options -= {.Short_File_Path, .Line, .Procedure}
 	sdl.SetLogPriorities(.VERBOSE)
 	sdl.SetLogOutputFunction(proc "c" (userdata: rawptr, category: sdl.LogCategory, priority: sdl.LogPriority, message: cstring) {
-		context = default_context
+		context = sdl_log_context
 		log.debugf("SDL {} [{}]: {}", category, priority, message)
 	}, nil)
 
-	ok := sdl.Init({.VIDEO}); assert(ok)
+	ok := sdl.Init({.VIDEO}); sdl_assert(ok)
 
-	window = sdl.CreateWindow("Hello SDL3", 1280, 780, {}); assert(window != nil)
+	window = sdl.CreateWindow("Hello SDL3", 1280, 780, {}); sdl_assert(window != nil)
 
-	gpu = sdl.CreateGPUDevice({.DXIL, .MSL}, true, nil); assert(gpu != nil)
+	gpu = sdl.CreateGPUDevice({.DXIL, .MSL}, true, nil); sdl_assert(gpu != nil)
 
-	ok = sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
+	ok = sdl.ClaimWindowForGPUDevice(gpu, window); sdl_assert(ok)
 
-	ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); assert(ok)
+	ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); sdl_assert(ok)
 
-	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); assert(ok)
+	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); sdl_assert(ok)
 
 	try_depth_format :: proc(format: sdl.GPUTextureFormat) {
 		if sdl.GPUTextureSupportsFormat(gpu, format, .D2, {.DEPTH_STENCIL_TARGET}) {
@@ -280,7 +287,7 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 
 	sdl.EndGPUCopyPass(copy_pass)
 
-	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); assert(ok)
+	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
 
 	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buf)
 	sdl.ReleaseGPUTransferBuffer(gpu, tex_transfer_buf)
@@ -395,7 +402,7 @@ main :: proc() {
 		// render
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
 		swapchain_tex: ^sdl.GPUTexture
-		ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil); assert(ok)
+		ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil); sdl_assert(ok)
 
 		view_mat := linalg.matrix4_look_at_f32(camera.position, camera.target, {0,1,0})
 		model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
@@ -436,11 +443,11 @@ main :: proc() {
 				store_op = .STORE
 			}
 			im_render_pass := sdl.BeginGPURenderPass(cmd_buf, &im_color_target, 1, nil)
-			im_sdlgpu.RenderDrawData(im_draw_data, cmd_buf, render_pass)
+			im_sdlgpu.RenderDrawData(im_draw_data, cmd_buf, im_render_pass)
 			sdl.EndGPURenderPass(im_render_pass)
 		}
 
-		ok = sdl.SubmitGPUCommandBuffer(cmd_buf); assert(ok)
+		ok = sdl.SubmitGPUCommandBuffer(cmd_buf); sdl_assert(ok)
 	}
 }
 
