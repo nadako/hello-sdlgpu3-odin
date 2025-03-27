@@ -6,13 +6,13 @@
 		{
 			"label": "build",
 			"type": "shell",
-			"command": "build.bat",
+			"command": "odin run build.odin -file",
 			"problemMatcher": [],
 		},
 		{
 			"label": "build-run",
 			"type": "shell",
-			"command": "build.bat run",
+			"command": "odin run build.odin -file -- run",
 			"problemMatcher": [],
 			"group": {
 				"kind": "build",
