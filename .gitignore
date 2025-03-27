@@ -1,2 +1,7 @@
 /hello-sdl3.exe
 /hello-sdl3.pdb
+/hello-sdl3
+/hello-sdl3.dSYM
+/build.exe
+/build
+.DS_Store
