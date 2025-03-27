@@ -5,6 +5,7 @@ import "core:log"
 import "core:strings"
 import "core:mem"
 import "core:os"
+import "core:encoding/json"
 import "core:path/filepath"
 import "core:math"
 import "core:math/linalg"
@@ -98,8 +99,8 @@ init :: proc() {
 }
 
 setup_pipeline :: proc() {
-	vert_shader := load_shader(gpu, "shader.vert", num_uniform_buffers = 1, num_samplers = 0)
-	frag_shader := load_shader(gpu, "shader.frag", num_uniform_buffers = 0, num_samplers = 1)
+	vert_shader := load_shader(gpu, "shader.vert")
+	frag_shader := load_shader(gpu, "shader.frag")
 
 	vertex_attrs := []sdl.GPUVertexAttribute {
 		{
@@ -378,7 +379,7 @@ main :: proc() {
 	}
 }
 
-load_shader :: proc(device: ^sdl.GPUDevice, shaderfile: string, num_uniform_buffers: u32, num_samplers: u32) -> ^sdl.GPUShader {
+load_shader :: proc(device: ^sdl.GPUDevice, shaderfile: string) -> ^sdl.GPUShader {
 	stage: sdl.GPUShaderStage
 	switch filepath.ext(shaderfile) {
 	case ".vert":
@@ -409,13 +410,33 @@ load_shader :: proc(device: ^sdl.GPUDevice, shaderfile: string, num_uniform_buff
 	shaderfile := filepath.join({CONTENT_DIR, "shaders", "out", shaderfile}, context.temp_allocator)
 	filename := strings.concatenate({shaderfile, format_ext})
 	code, ok := os.read_entire_file_from_filename(filename, context.temp_allocator); assert(ok)
+
+	info := load_shader_info(shaderfile)
+
 	return sdl.CreateGPUShader(device, {
 		code_size = len(code),
 		code = raw_data(code),
 		entrypoint = entrypoint,
 		format = {format},
 		stage = stage,
-		num_uniform_buffers = num_uniform_buffers,
-		num_samplers = num_samplers,
+		num_uniform_buffers = info.uniform_buffers,
+		num_samplers = info.samplers,
+		num_storage_buffers = info.storage_buffers,
+		num_storage_textures = info.storage_textures,
 	})
+}
+
+Shader_Info :: struct {
+	samplers: u32,
+	storage_textures: u32,
+	storage_buffers: u32,
+	uniform_buffers: u32,
+}
+
+load_shader_info :: proc(shaderfile: string) -> Shader_Info {
+	json_filename := strings.concatenate({shaderfile, ".json"}, context.temp_allocator)
+	json_data, ok := os.read_entire_file_from_filename(json_filename, context.temp_allocator); assert(ok)
+	result: Shader_Info
+	err := json.unmarshal(json_data, &result, allocator = context.temp_allocator); assert(err == nil)
+	return result
 }

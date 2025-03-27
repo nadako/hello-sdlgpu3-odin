@@ -22,6 +22,7 @@ main :: proc() {
     shadercross(file, "spv")
     shadercross(file, "dxil")
     shadercross(file, "msl")
+    shadercross(file, "json")
   }
 
   if slice.contains(os.args, "run") do run({OUT})
