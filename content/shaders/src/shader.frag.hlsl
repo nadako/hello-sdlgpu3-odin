@@ -7,5 +7,10 @@ Texture2D<float4> tex : register(t0, space2);
 SamplerState smp : register(s0, space2);
 
 float4 main(Input input) : SV_Target0 {
-	return tex.Sample(smp, input.uv) * input.color;
+	float4 color = tex.Sample(smp, input.uv);
+
+	// here the colors are linear
+
+	float4 finalColor = color * input.color;
+	return finalColor;
 }

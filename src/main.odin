@@ -74,6 +74,8 @@ init :: proc() {
 
 	ok = sdl.ClaimWindowForGPUDevice(gpu, window); assert(ok)
 
+	ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); assert(ok)
+
 	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); assert(ok)
 
 	try_depth_format :: proc(format: sdl.GPUTextureFormat) {
@@ -111,6 +113,14 @@ init_imgui :: proc() {
 		Device = gpu,
 		ColorTargetFormat = sdl.GetGPUSwapchainTextureFormat(gpu, window)
 	})
+
+	// since we're using the LINEAR swapchain composition mode,
+	// the colors are expected to be in linear space. the imgui shaders don't
+	// do any tranfering, and the original style values are in sRGB, so we convert them here
+	style := im.GetStyle()
+	for &color in style.Colors {
+		color.rgb = linalg.pow(color.rgb, 2.2)
+	}
 }
 
 setup_pipeline :: proc() {
@@ -185,7 +195,7 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 	pixels_byte_size := img_size.x * img_size.y * 4
 
 	texture := sdl.CreateGPUTexture(gpu, {
-		format = .R8G8B8A8_UNORM,
+		format = .R8G8B8A8_UNORM_SRGB, // pixels are in sRGB, converted to linear in shaders
 		usage = {.SAMPLER},
 		width = u32(img_size.x),
 		height = u32(img_size.y),
@@ -327,7 +337,7 @@ main :: proc() {
 	}
 
 	last_ticks := sdl.GetTicks()
-	clear_color := sdl.FColor {0, 0.2, 0.4, 1}
+	clear_color := sdl.FColor {0, 0.023, 0.133, 1}
 
 	main_loop: for {
 		free_all(context.temp_allocator)
@@ -374,7 +384,7 @@ main :: proc() {
 
 		if im.Begin("Inspector") {
 			im.Checkbox("Rotate", &rotate)
-			im.ColorEdit3("Clear color", transmute(^[3]f32)&clear_color)
+			im.ColorEdit3("Clear color", transmute(^[3]f32)&clear_color, {.Float})
 		}
 		im.End()
 
