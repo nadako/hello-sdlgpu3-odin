@@ -48,13 +48,3 @@ load_obj_file :: proc(copy_pass: ^sdl.GPUCopyPass, mesh_file: string) -> Mesh {
 
 	return mesh
 }
-
-load_model :: proc(copy_pass: ^sdl.GPUCopyPass, mesh_file: string, texture_file: string) -> Model {
-	texture := load_texture_file(copy_pass, texture_file)
-	mesh := load_obj_file(copy_pass, mesh_file)
-	return {
-		mesh = mesh,
-		texture = texture,
-	}
-}
-

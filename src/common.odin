@@ -8,6 +8,7 @@ CONTENT_DIR :: "content"
 Vec3 :: [3]f32
 Vec2 :: [2]f32
 Mat4 :: matrix[4, 4]f32
+Quat :: quaternion128
 
 WHITE :: sdl.FColor { 1, 1, 1, 1 }
 
@@ -40,8 +41,9 @@ Globals :: struct {
 
 	clear_color: sdl.FColor,
 	rotate: bool,
-	rotation: f32,
-	model: Model,
+
+	models: []Model,
+	entities: []Entity,
 }
 
 g: Globals
