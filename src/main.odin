@@ -66,15 +66,25 @@ sdl_assert :: proc(ok: bool) {
 	if !ok do log.panicf("SDL Error: {}", sdl.GetError())
 }
 
+sdl_log :: proc "c" (userdata: rawptr, category: sdl.LogCategory, priority: sdl.LogPriority, message: cstring) {
+	context = (transmute(^runtime.Context)userdata)^
+	level: log.Level
+	switch priority {
+	case .INVALID, .TRACE, .VERBOSE, .DEBUG: level = .Debug
+	case .INFO: level = .Info
+	case .WARN: level = .Warning
+	case .ERROR: level = .Error
+	case .CRITICAL: level = .Fatal
+	}
+	log.logf(level, "SDL {}: {}", category, message)
+}
+
 init :: proc() {
 	@static sdl_log_context: runtime.Context
 	sdl_log_context = context
 	sdl_log_context.logger.options -= {.Short_File_Path, .Line, .Procedure}
 	sdl.SetLogPriorities(.VERBOSE)
-	sdl.SetLogOutputFunction(proc "c" (userdata: rawptr, category: sdl.LogCategory, priority: sdl.LogPriority, message: cstring) {
-		context = sdl_log_context
-		log.debugf("SDL {} [{}]: {}", category, priority, message)
-	}, nil)
+	sdl.SetLogOutputFunction(sdl_log, &sdl_log_context)
 
 	ok := sdl.Init({.VIDEO}); sdl_assert(ok)
 
