@@ -17,25 +17,28 @@ import im_sdlgpu "shared:imgui/imgui_impl_sdlgpu3"
 
 CONTENT_DIR :: "content"
 
-default_context: runtime.Context
-sdl_log_context: runtime.Context
+Globals :: struct {
+	gpu: ^sdl.GPUDevice,
+	window: ^sdl.Window,
+	window_size: [2]i32,
+	depth_texture: ^sdl.GPUTexture,
+	depth_texture_format: sdl.GPUTextureFormat,
+	swapchain_texture_format: sdl.GPUTextureFormat,
+	pipeline: ^sdl.GPUGraphicsPipeline,
+	sampler: ^sdl.GPUSampler,
+	camera: struct {
+		position: Vec3,
+		target: Vec3,
+	},
+	look: struct {
+		yaw: f32,
+		pitch: f32,
+	},
+	key_down: #sparse[sdl.Scancode]bool,
+	mouse_move: Vec2,
+}
 
-gpu: ^sdl.GPUDevice
-window: ^sdl.Window
-win_size: [2]i32
-depth_texture: ^sdl.GPUTexture
-pipeline: ^sdl.GPUGraphicsPipeline
-sampler: ^sdl.GPUSampler
-camera: struct {
-	position: Vec3,
-	target: Vec3,
-}
-look: struct {
-	yaw: f32,
-	pitch: f32,
-}
-key_down: #sparse[sdl.Scancode]bool
-mouse_move: Vec2
+g: Globals
 
 EYE_HEIGHT :: 1
 MOVE_SPEED :: 5
@@ -44,7 +47,6 @@ LOOK_SENSITIVITY :: 0.3
 Vec3 :: [3]f32
 Vec2 :: [2]f32
 
-depth_texture_format := sdl.GPUTextureFormat.D16_UNORM
 WHITE :: sdl.FColor { 1, 1, 1, 1 }
 
 Vertex_Data :: struct {
@@ -65,6 +67,7 @@ sdl_assert :: proc(ok: bool) {
 }
 
 init :: proc() {
+	@static sdl_log_context: runtime.Context
 	sdl_log_context = context
 	sdl_log_context.logger.options -= {.Short_File_Path, .Line, .Procedure}
 	sdl.SetLogPriorities(.VERBOSE)
@@ -75,39 +78,42 @@ init :: proc() {
 
 	ok := sdl.Init({.VIDEO}); sdl_assert(ok)
 
-	window = sdl.CreateWindow("Hello SDL3", 1280, 780, {}); sdl_assert(window != nil)
+	g.window = sdl.CreateWindow("Hello SDL3", 1280, 780, {}); sdl_assert(g.window != nil)
 
-	gpu = sdl.CreateGPUDevice({.DXIL, .MSL}, true, nil); sdl_assert(gpu != nil)
+	g.gpu = sdl.CreateGPUDevice({.DXIL, .MSL}, true, nil); sdl_assert(g.gpu != nil)
 
-	ok = sdl.ClaimWindowForGPUDevice(gpu, window); sdl_assert(ok)
+	ok = sdl.ClaimWindowForGPUDevice(g.gpu, g.window); sdl_assert(ok)
 
-	ok = sdl.SetGPUSwapchainParameters(gpu, window, .SDR_LINEAR, .VSYNC); sdl_assert(ok)
+	ok = sdl.SetGPUSwapchainParameters(g.gpu, g.window, .SDR_LINEAR, .VSYNC); sdl_assert(ok)
 
-	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y); sdl_assert(ok)
+	g.swapchain_texture_format = sdl.GetGPUSwapchainTextureFormat(g.gpu, g.window)
 
+	ok = sdl.GetWindowSize(g.window, &g.window_size.x, &g.window_size.y); sdl_assert(ok)
+
+	g.depth_texture_format = .D16_UNORM
 	try_depth_format :: proc(format: sdl.GPUTextureFormat) {
-		if sdl.GPUTextureSupportsFormat(gpu, format, .D2, {.DEPTH_STENCIL_TARGET}) {
-			depth_texture_format = format
+		if sdl.GPUTextureSupportsFormat(g.gpu, format, .D2, {.DEPTH_STENCIL_TARGET}) {
+			g.depth_texture_format = format
 		}
 	}
 	try_depth_format(.D32_FLOAT)
 	try_depth_format(.D24_UNORM)
 
-	depth_texture = sdl.CreateGPUTexture(gpu, {
-		format = depth_texture_format,
+	g.depth_texture = sdl.CreateGPUTexture(g.gpu, {
+		format = g.depth_texture_format,
 		usage = {.DEPTH_STENCIL_TARGET},
-		width = u32(win_size.x),
-		height = u32(win_size.y),
+		width = u32(g.window_size.x),
+		height = u32(g.window_size.y),
 		layer_count_or_depth = 1,
 		num_levels = 1,
 	})
 
-	camera = {
+	g.camera = {
 		position = {0, EYE_HEIGHT, 3},
 		target = {0, EYE_HEIGHT, 0}
 	}
 
-	_ = sdl.SetWindowRelativeMouseMode(window, true)
+	_ = sdl.SetWindowRelativeMouseMode(g.window, true)
 
 	init_imgui()
 }
@@ -115,10 +121,10 @@ init :: proc() {
 init_imgui :: proc() {
 	im.CHECKVERSION()
 	im.CreateContext()
-	im_sdl.InitForSDLGPU(window)
+	im_sdl.InitForSDLGPU(g.window)
 	im_sdlgpu.Init(&{
-		Device = gpu,
-		ColorTargetFormat = sdl.GetGPUSwapchainTextureFormat(gpu, window)
+		Device = g.gpu,
+		ColorTargetFormat = g.swapchain_texture_format,
 	})
 
 	// since we're using the LINEAR swapchain composition mode,
@@ -131,8 +137,8 @@ init_imgui :: proc() {
 }
 
 setup_pipeline :: proc() {
-	vert_shader := load_shader(gpu, "shader.vert")
-	frag_shader := load_shader(gpu, "shader.frag")
+	vert_shader := load_shader(g.gpu, "shader.vert")
+	frag_shader := load_shader(g.gpu, "shader.frag")
 
 	vertex_attrs := []sdl.GPUVertexAttribute {
 		{
@@ -152,7 +158,7 @@ setup_pipeline :: proc() {
 		}
 	}
 
-	pipeline = sdl.CreateGPUGraphicsPipeline(gpu, {
+	g.pipeline = sdl.CreateGPUGraphicsPipeline(g.gpu, {
 		vertex_shader = vert_shader,
 		fragment_shader = frag_shader,
 		primitive_type = .TRIANGLELIST,
@@ -177,17 +183,17 @@ setup_pipeline :: proc() {
 		target_info = {
 			num_color_targets = 1,
 			color_target_descriptions = &(sdl.GPUColorTargetDescription {
-				format = sdl.GetGPUSwapchainTextureFormat(gpu, window)
+				format = g.swapchain_texture_format,
 			}),
 			has_depth_stencil_target = true,
-			depth_stencil_format = depth_texture_format,
+			depth_stencil_format = g.depth_texture_format,
 		}
 	})
 
-	sdl.ReleaseGPUShader(gpu, vert_shader)
-	sdl.ReleaseGPUShader(gpu, frag_shader)
+	sdl.ReleaseGPUShader(g.gpu, vert_shader)
+	sdl.ReleaseGPUShader(g.gpu, frag_shader)
 
-	sampler = sdl.CreateGPUSampler(gpu, {})
+	g.sampler = sdl.CreateGPUSampler(g.gpu, {})
 }
 
 load_model :: proc(mesh_file: string, texture_file: string) -> Model {
@@ -201,7 +207,7 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 	pixels := stbi.load(texture_file, &img_size.x, &img_size.y, nil, 4); assert(pixels != nil)
 	pixels_byte_size := img_size.x * img_size.y * 4
 
-	texture := sdl.CreateGPUTexture(gpu, {
+	texture := sdl.CreateGPUTexture(g.gpu, {
 		format = .R8G8B8A8_UNORM_SRGB, // pixels are in sRGB, converted to linear in shaders
 		usage = {.SAMPLER},
 		width = u32(img_size.x),
@@ -232,38 +238,38 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 	vertices_byte_size := len(vertices) * size_of(vertices[0])
 	indices_byte_size := len(indices) * size_of(indices[0])
 
-	vertex_buf := sdl.CreateGPUBuffer(gpu, {
+	vertex_buf := sdl.CreateGPUBuffer(g.gpu, {
 		usage = {.VERTEX},
 		size = u32(vertices_byte_size)
 	})
 
-	index_buf := sdl.CreateGPUBuffer(gpu, {
+	index_buf := sdl.CreateGPUBuffer(g.gpu, {
 		usage = {.INDEX},
 		size = u32(indices_byte_size)
 	})
 
-	transfer_buf := sdl.CreateGPUTransferBuffer(gpu, {
+	transfer_buf := sdl.CreateGPUTransferBuffer(g.gpu, {
 		usage = .UPLOAD,
 		size = u32(vertices_byte_size + indices_byte_size)
 	})
 
-	transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buf, false)
+	transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(g.gpu, transfer_buf, false)
 	mem.copy(transfer_mem, raw_data(vertices), vertices_byte_size)
 	mem.copy(transfer_mem[vertices_byte_size:], raw_data(indices), indices_byte_size)
-	sdl.UnmapGPUTransferBuffer(gpu, transfer_buf)
+	sdl.UnmapGPUTransferBuffer(g.gpu, transfer_buf)
 
 	delete(indices)
 	delete(vertices)
 
-	tex_transfer_buf := sdl.CreateGPUTransferBuffer(gpu, {
+	tex_transfer_buf := sdl.CreateGPUTransferBuffer(g.gpu, {
 		usage = .UPLOAD,
 		size = u32(pixels_byte_size)
 	})
-	tex_transfer_mem := sdl.MapGPUTransferBuffer(gpu, tex_transfer_buf, false)
+	tex_transfer_mem := sdl.MapGPUTransferBuffer(g.gpu, tex_transfer_buf, false)
 	mem.copy(tex_transfer_mem, pixels, int(pixels_byte_size))
-	sdl.UnmapGPUTransferBuffer(gpu, tex_transfer_buf)
+	sdl.UnmapGPUTransferBuffer(g.gpu, tex_transfer_buf)
 
-	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
+	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g.gpu)
 
 	copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
 
@@ -289,8 +295,8 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 
 	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
 
-	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buf)
-	sdl.ReleaseGPUTransferBuffer(gpu, tex_transfer_buf)
+	sdl.ReleaseGPUTransferBuffer(g.gpu, transfer_buf)
+	sdl.ReleaseGPUTransferBuffer(g.gpu, tex_transfer_buf)
 
 	return {
 		vertex_buf = vertex_buf,
@@ -302,17 +308,17 @@ load_model :: proc(mesh_file: string, texture_file: string) -> Model {
 
 update_camera :: proc(dt: f32) {
 	move_input: Vec2
-	if key_down[.W] do move_input.y = 1
-	else if key_down[.S] do move_input.y = -1
-	if key_down[.A] do move_input.x = -1
-	else if key_down[.D] do move_input.x = 1
+	if g.key_down[.W] do move_input.y = 1
+	else if g.key_down[.S] do move_input.y = -1
+	if g.key_down[.A] do move_input.x = -1
+	else if g.key_down[.D] do move_input.x = 1
 
-	look_input := mouse_move * LOOK_SENSITIVITY
+	look_input := g.mouse_move * LOOK_SENSITIVITY
 
-	look.yaw = math.wrap(look.yaw - look_input.x, 360)
-	look.pitch = math.clamp(look.pitch - look_input.y, -89, 89)
+	g.look.yaw = math.wrap(g.look.yaw - look_input.x, 360)
+	g.look.pitch = math.clamp(g.look.pitch - look_input.y, -89, 89)
 
-	look_mat := linalg.matrix3_from_yaw_pitch_roll_f32(linalg.to_radians(look.yaw), linalg.to_radians(look.pitch), 0)
+	look_mat := linalg.matrix3_from_yaw_pitch_roll_f32(linalg.to_radians(g.look.yaw), linalg.to_radians(g.look.pitch), 0)
 
 	forward := look_mat * Vec3 {0,0,-1}
 	right := look_mat * Vec3 {1,0,0}
@@ -321,13 +327,12 @@ update_camera :: proc(dt: f32) {
 
 	motion := linalg.normalize0(move_dir) * MOVE_SPEED * dt
 
-	camera.position += motion
-	camera.target = camera.position + forward
+	g.camera.position += motion
+	g.camera.target = g.camera.position + forward
 }
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	default_context = context
 
 	init()
 	setup_pipeline()
@@ -337,7 +342,7 @@ main :: proc() {
 	rotation := f32(0)
 	rotate := true
 
-	proj_mat := linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), f32(win_size.x) / f32(win_size.y), 0.0001, 1000)
+	proj_mat := linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), f32(g.window_size.x) / f32(g.window_size.y), 0.0001, 1000)
 
 	UBO :: struct {
 		mvp: matrix[4,4]f32,
@@ -348,13 +353,13 @@ main :: proc() {
 
 	main_loop: for {
 		free_all(context.temp_allocator)
-		mouse_move = {}
+		g.mouse_move = {}
 
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 
-		ui_input_mode := !sdl.GetWindowRelativeMouseMode(window)
+		ui_input_mode := !sdl.GetWindowRelativeMouseMode(g.window)
 
 		// process events
 		ev: sdl.Event
@@ -367,20 +372,20 @@ main :: proc() {
 				case .KEY_DOWN:
 					if !ui_input_mode {
 						if ev.key.scancode == .ESCAPE do break main_loop
-						key_down[ev.key.scancode] = true
+						g.key_down[ev.key.scancode] = true
 					}
 				case .KEY_UP:
 					if !ui_input_mode {
-						key_down[ev.key.scancode] = false
+						g.key_down[ev.key.scancode] = false
 					}
 				case .MOUSE_MOTION:
 					if !ui_input_mode {
-						mouse_move += {ev.motion.xrel, ev.motion.yrel}
+						g.mouse_move += {ev.motion.xrel, ev.motion.yrel}
 					}
 				case .MOUSE_BUTTON_DOWN:
 					if ev.button.button == 2 {
 						ui_input_mode = !ui_input_mode
-						_ = sdl.SetWindowRelativeMouseMode(window, !ui_input_mode)
+						_ = sdl.SetWindowRelativeMouseMode(g.window, !ui_input_mode)
 					}
 			}
 		}
@@ -400,11 +405,11 @@ main :: proc() {
 		update_camera(delta_time)
 
 		// render
-		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
+		cmd_buf := sdl.AcquireGPUCommandBuffer(g.gpu)
 		swapchain_tex: ^sdl.GPUTexture
-		ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil); sdl_assert(ok)
+		ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, g.window, &swapchain_tex, nil, nil); sdl_assert(ok)
 
-		view_mat := linalg.matrix4_look_at_f32(camera.position, camera.target, {0,1,0})
+		view_mat := linalg.matrix4_look_at_f32(g.camera.position, g.camera.target, {0,1,0})
 		model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(rotation, {0,1,0})
 
 		ubo := UBO {
@@ -422,17 +427,17 @@ main :: proc() {
 				store_op = .STORE
 			}
 			depth_target_info := sdl.GPUDepthStencilTargetInfo {
-				texture = depth_texture,
+				texture = g.depth_texture,
 				load_op = .CLEAR,
 				clear_depth = 1,
 				store_op = .DONT_CARE
 			}
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target_info)
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
+			sdl.BindGPUGraphicsPipeline(render_pass, g.pipeline)
 			sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = model.vertex_buf }), 1)
 			sdl.BindGPUIndexBuffer(render_pass, { buffer = model.index_buf }, ._16BIT)
-			sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = model.texture, sampler = sampler}), 1)
+			sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = model.texture, sampler = g.sampler}), 1)
 			sdl.DrawGPUIndexedPrimitives(render_pass, model.num_indices, 1, 0, 0, 0)
 			sdl.EndGPURenderPass(render_pass)
 
