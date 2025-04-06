@@ -2,10 +2,6 @@ package main
 
 import "core:math"
 import "core:math/linalg"
-import "core:path/filepath"
-import "core:mem"
-import "core:strings"
-import stbi "vendor:stb/image"
 import sdl "vendor:sdl3"
 import im "shared:imgui"
 
@@ -24,17 +20,27 @@ Vertex_Data :: struct {
 	uv: Vec2,
 }
 
-Model :: struct {
+Mesh :: struct {
 	vertex_buf: ^sdl.GPUBuffer,
 	index_buf: ^sdl.GPUBuffer,
 	num_indices: u32,
+}
+
+Model :: struct {
+	using mesh: Mesh, // TODO: temporary using
 	texture: ^sdl.GPUTexture,
 }
 
 game_init :: proc() {
 	setup_pipeline()
 
-	g.model = load_model("tractor-police.obj", "colormap.png")
+	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g.gpu)
+	copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
+
+	g.model = load_model(copy_pass, "tractor-police.obj", "colormap.png")
+
+	sdl.EndGPUCopyPass(copy_pass)
+	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
 
 	g.rotate = true
 
@@ -171,115 +177,5 @@ update_camera :: proc(dt: f32) {
 
 	g.camera.position += motion
 	g.camera.target = g.camera.position + forward
-}
-
-load_model :: proc(mesh_file: string, texture_file: string) -> Model {
-	mesh_path := filepath.join({CONTENT_DIR, "meshes", mesh_file}, context.temp_allocator)
-	texture_path := filepath.join({CONTENT_DIR, "textures", texture_file}, context.temp_allocator)
-
-	texture_file := strings.clone_to_cstring(texture_path, context.temp_allocator)
-
-	img_size: [2]i32
-	// stbi.set_flip_vertically_on_load(1)
-	pixels := stbi.load(texture_file, &img_size.x, &img_size.y, nil, 4); assert(pixels != nil)
-	pixels_byte_size := img_size.x * img_size.y * 4
-
-	texture := sdl.CreateGPUTexture(g.gpu, {
-		format = .R8G8B8A8_UNORM_SRGB, // pixels are in sRGB, converted to linear in shaders
-		usage = {.SAMPLER},
-		width = u32(img_size.x),
-		height = u32(img_size.y),
-		layer_count_or_depth = 1,
-		num_levels = 1,
-	})
-
-	obj_data := obj_load(mesh_path)
-
-	vertices := make([]Vertex_Data, len(obj_data.faces))
-	indices := make([]u16, len(obj_data.faces))
-
-	for face, i in obj_data.faces {
-		uv := obj_data.uvs[face.uv]
-		vertices[i] = {
-			pos = obj_data.positions[face.pos],
-			color = WHITE,
-			uv = {uv.x, 1-uv.y},
-		}
-		indices[i] = u16(i)
-	}
-
-	obj_destroy(obj_data)
-
-	num_indices := len(indices)
-
-	vertices_byte_size := len(vertices) * size_of(vertices[0])
-	indices_byte_size := len(indices) * size_of(indices[0])
-
-	vertex_buf := sdl.CreateGPUBuffer(g.gpu, {
-		usage = {.VERTEX},
-		size = u32(vertices_byte_size)
-	})
-
-	index_buf := sdl.CreateGPUBuffer(g.gpu, {
-		usage = {.INDEX},
-		size = u32(indices_byte_size)
-	})
-
-	transfer_buf := sdl.CreateGPUTransferBuffer(g.gpu, {
-		usage = .UPLOAD,
-		size = u32(vertices_byte_size + indices_byte_size)
-	})
-
-	transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(g.gpu, transfer_buf, false)
-	mem.copy(transfer_mem, raw_data(vertices), vertices_byte_size)
-	mem.copy(transfer_mem[vertices_byte_size:], raw_data(indices), indices_byte_size)
-	sdl.UnmapGPUTransferBuffer(g.gpu, transfer_buf)
-
-	delete(indices)
-	delete(vertices)
-
-	tex_transfer_buf := sdl.CreateGPUTransferBuffer(g.gpu, {
-		usage = .UPLOAD,
-		size = u32(pixels_byte_size)
-	})
-	tex_transfer_mem := sdl.MapGPUTransferBuffer(g.gpu, tex_transfer_buf, false)
-	mem.copy(tex_transfer_mem, pixels, int(pixels_byte_size))
-	sdl.UnmapGPUTransferBuffer(g.gpu, tex_transfer_buf)
-
-	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g.gpu)
-
-	copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
-
-	sdl.UploadToGPUBuffer(copy_pass,
-		{transfer_buffer = transfer_buf},
-		{buffer = vertex_buf, size = u32(vertices_byte_size)},
-		false
-	)
-
-	sdl.UploadToGPUBuffer(copy_pass,
-		{transfer_buffer = transfer_buf, offset = u32(vertices_byte_size)},
-		{buffer = index_buf, size = u32(indices_byte_size)},
-		false
-	)
-
-	sdl.UploadToGPUTexture(copy_pass,
-		{transfer_buffer = tex_transfer_buf},
-		{texture = texture, w = u32(img_size.x), h = u32(img_size.y), d = 1},
-		false
-	)
-
-	sdl.EndGPUCopyPass(copy_pass)
-
-	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
-
-	sdl.ReleaseGPUTransferBuffer(g.gpu, transfer_buf)
-	sdl.ReleaseGPUTransferBuffer(g.gpu, tex_transfer_buf)
-
-	return {
-		vertex_buf = vertex_buf,
-		index_buf = index_buf,
-		num_indices = u32(num_indices),
-		texture = texture,
-	}
 }
 
