@@ -19,7 +19,7 @@ upload_texture :: proc(copy_pass: ^sdl.GPUCopyPass, pixels: []byte, width, heigh
 		size = u32(len(pixels))
 	})
 	tex_transfer_mem := sdl.MapGPUTransferBuffer(g.gpu, tex_transfer_buf, false)
-	mem.copy(tex_transfer_mem, raw_data(pixels), int(len(pixels)))
+	mem.copy(tex_transfer_mem, raw_data(pixels), len(pixels))
 	sdl.UnmapGPUTransferBuffer(g.gpu, tex_transfer_buf)
 
 	sdl.UploadToGPUTexture(copy_pass,

@@ -36,7 +36,7 @@ load_shader :: proc(device: ^sdl.GPUDevice, shaderfile: string) -> ^sdl.GPUShade
 	}
 
 	shaderfile := filepath.join({CONTENT_DIR, "shaders", "out", shaderfile}, context.temp_allocator)
-	filename := strings.concatenate({shaderfile, format_ext})
+	filename := strings.concatenate({shaderfile, format_ext}, context.temp_allocator)
 	code, ok := os.read_entire_file_from_filename(filename, context.temp_allocator); assert(ok)
 
 	info := load_shader_info(shaderfile)

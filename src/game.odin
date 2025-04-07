@@ -54,6 +54,9 @@ game_init :: proc() {
 		{load_obj_file(copy_pass, "ambulance.obj"), colormap},
 	})
 
+	sdl.EndGPUCopyPass(copy_pass)
+	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
+
 	g.entities = slice.clone([]Entity {
 		{
 			model_id = 0,
@@ -71,9 +74,6 @@ game_init :: proc() {
 			rotation = linalg.quaternion_from_euler_angle_y_f32(15 * linalg.RAD_PER_DEG),
 		}
 	})
-
-	sdl.EndGPUCopyPass(copy_pass)
-	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf); sdl_assert(ok)
 
 	g.rotate = true
 

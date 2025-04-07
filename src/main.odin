@@ -2,7 +2,6 @@ package main
 
 import "base:runtime"
 import "core:log"
-import "core:os"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 import im "shared:imgui"
@@ -91,6 +90,7 @@ main :: proc() {
 	game_init()
 
 	last_ticks := sdl.GetTicks()
+	im_io := im.GetIO()
 
 	main_loop: for {
 		free_all(context.temp_allocator)
@@ -111,14 +111,12 @@ main :: proc() {
 				case .QUIT:
 					break main_loop
 				case .KEY_DOWN:
+					if ev.key.scancode == .ESCAPE && !im_io.WantCaptureKeyboard do break main_loop
 					if !ui_input_mode {
-						if ev.key.scancode == .ESCAPE do break main_loop
 						g.key_down[ev.key.scancode] = true
 					}
 				case .KEY_UP:
-					if !ui_input_mode {
-						g.key_down[ev.key.scancode] = false
-					}
+					g.key_down[ev.key.scancode] = false
 				case .MOUSE_MOTION:
 					if !ui_input_mode {
 						g.mouse_move += {ev.motion.xrel, ev.motion.yrel}
