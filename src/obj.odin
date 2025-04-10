@@ -25,7 +25,7 @@ obj_load :: proc(filename: string) -> Obj_Data {
 	positions := make([dynamic]Vec3)
 	uvs := make([dynamic]Vec2)
 	faces := make([dynamic]Obj_FaceIndex)
-	
+
 	for line in strings.split_lines_iterator(&input_string) {
 		if len(line) == 0 do continue
 
@@ -44,18 +44,18 @@ obj_load :: proc(filename: string) -> Obj_Data {
 				append_elems(&faces, indices[0], indices[1], indices[2])
 		}
 	}
-	
+
 	return {
 		positions = positions[:],
 		uvs = uvs[:],
-		faces = faces[:],		
+		faces = faces[:],
 	}
 }
 
 obj_destroy :: proc(obj: Obj_Data) {
 	delete(obj.positions)
 	delete(obj.uvs)
-	delete(obj.faces)	
+	delete(obj.faces)
 }
 
 extract_separated :: proc(s: ^string, sep: byte) -> string {
