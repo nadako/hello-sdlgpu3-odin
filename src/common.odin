@@ -16,6 +16,7 @@ sdl_assert :: proc(ok: bool) {
 	if !ok do log.panicf("SDL Error: {}", sdl.GetError())
 }
 
+// TODO: extract game global state into a separate structure
 Globals :: struct {
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,
@@ -44,6 +45,10 @@ Globals :: struct {
 
 	models: []Model,
 	entities: []Entity,
+
+	light_position: Vec3,
+	light_color: Vec3,
+	light_intensity: f32,
 }
 
 g: Globals

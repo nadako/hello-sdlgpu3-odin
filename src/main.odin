@@ -32,7 +32,7 @@ init_sdl :: proc() {
 
 	g.window = sdl.CreateWindow("Hello SDL3", 1280, 780, {}); sdl_assert(g.window != nil)
 
-	g.gpu = sdl.CreateGPUDevice({.DXIL, .MSL}, true, nil); sdl_assert(g.gpu != nil)
+	g.gpu = sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL}, true, nil); sdl_assert(g.gpu != nil)
 
 	ok = sdl.ClaimWindowForGPUDevice(g.gpu, g.window); sdl_assert(ok)
 

@@ -33,6 +33,7 @@ load_obj_file :: proc(copy_pass: ^sdl.GPUCopyPass, mesh_file: string) -> Mesh {
 		uv := obj_data.uvs[face.uv]
 		vertices[i] = {
 			pos = obj_data.positions[face.pos],
+			normal = obj_data.normals[face.normal],
 			color = WHITE,
 			uv = {uv.x, 1-uv.y},
 		}

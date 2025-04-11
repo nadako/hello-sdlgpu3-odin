@@ -7,13 +7,15 @@ import "core:log"
 
 Obj_Data :: struct {
 	positions: []Vec3,
+	normals: []Vec3,
 	uvs: []Vec2,
 	faces: []Obj_FaceIndex,
 }
 
 Obj_FaceIndex :: struct {
 	pos: uint,
-	uv: uint
+	normal: uint,
+	uv: uint,
 }
 
 obj_load :: proc(filename: string) -> Obj_Data {
@@ -23,6 +25,7 @@ obj_load :: proc(filename: string) -> Obj_Data {
 	input_string := string(data)
 
 	positions := make([dynamic]Vec3)
+	normals := make([dynamic]Vec3)
 	uvs := make([dynamic]Vec2)
 	faces := make([dynamic]Obj_FaceIndex)
 
@@ -33,8 +36,11 @@ obj_load :: proc(filename: string) -> Obj_Data {
 			case 'v':
 				switch line[1] {
 					case ' ':
-						pos := parse_position(line[2:])
+						pos := parse_vec3(line[2:])
 						append(&positions, pos)
+					case 'n':
+						normal := parse_vec3(line[3:])
+						append(&normals, normal)
 					case 't':
 						uv := parse_uv(line[3:])
 						append(&uvs, uv)
@@ -47,6 +53,7 @@ obj_load :: proc(filename: string) -> Obj_Data {
 
 	return {
 		positions = positions[:],
+		normals = normals[:],
 		uvs = uvs[:],
 		faces = faces[:],
 	}
@@ -54,6 +61,7 @@ obj_load :: proc(filename: string) -> Obj_Data {
 
 obj_destroy :: proc(obj: Obj_Data) {
 	delete(obj.positions)
+	delete(obj.normals)
 	delete(obj.uvs)
 	delete(obj.faces)
 }
@@ -76,7 +84,7 @@ parse_uint :: proc(s: string) -> uint {
 	return res
 }
 
-parse_position :: proc(s: string) -> Vec3 {
+parse_vec3 :: proc(s: string) -> Vec3 {
 	s := s
 	x := parse_f32(extract_separated(&s, ' '))
 	y := parse_f32(extract_separated(&s, ' '))
@@ -105,5 +113,6 @@ parse_face_index :: proc(s: string) -> Obj_FaceIndex {
 	return {
 		pos = parse_uint(extract_separated(&s, '/')) - 1,
 		uv = parse_uint(extract_separated(&s, '/')) - 1,
+		normal = parse_uint(extract_separated(&s, '/')) - 1,
 	}
 }

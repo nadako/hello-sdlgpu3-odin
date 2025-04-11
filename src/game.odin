@@ -12,13 +12,22 @@ LOOK_SENSITIVITY :: 0.3
 ROTATION_SPEED :: f32(90) * linalg.RAD_PER_DEG
 
 UBO :: struct {
-	mvp: Mat4,
+	vp: Mat4,
+	m: Mat4,
+}
+
+UBO_Frag_Global :: struct #packed {
+	light_position: Vec3,
+	_: f32,
+	light_color: Vec3,
+	light_intensity: f32,
 }
 
 Vertex_Data :: struct {
 	pos: Vec3,
 	color: sdl.FColor,
 	uv: Vec2,
+	normal: Vec3,
 }
 
 Mesh :: struct {
@@ -77,17 +86,26 @@ game_init :: proc() {
 
 	g.rotate = true
 
-	g.clear_color = sdl.FColor {0, 0.023, 0.133, 1}
+	g.clear_color = 0
 	g.camera = {
 		position = {0, EYE_HEIGHT, 3},
 		target = {0, EYE_HEIGHT, 0}
 	}
+
+	g.light_position = {3, 3, 3}
+	g.light_color = {1, 1, 1}
+	g.light_intensity = 1
 }
 
 game_update :: proc(delta_time: f32) {
 	if im.Begin("Inspector") {
 		im.Checkbox("Rotate", &g.rotate)
 		im.ColorEdit3("Clear color", transmute(^[3]f32)&g.clear_color, {.Float})
+
+		im.SeparatorText("Light")
+		im.DragFloat3("Position", &g.light_position, 0.1, -10, 10)
+		im.ColorEdit3("Color", &g.light_color, {.Float})
+		im.DragFloat("Intensity", &g.light_intensity, 0.01, 0, 1000)
 	}
 	im.End()
 
@@ -101,6 +119,13 @@ game_update :: proc(delta_time: f32) {
 game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTexture) {
 	proj_mat := linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), f32(g.window_size.x) / f32(g.window_size.y), 0.0001, 1000)
 	view_mat := linalg.matrix4_look_at_f32(g.camera.position, g.camera.target, {0,1,0})
+
+	ubo_frag_global := UBO_Frag_Global {
+		light_intensity = g.light_intensity,
+		light_position = g.light_position,
+		light_color = g.light_color
+	}
+	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &ubo_frag_global, size_of(ubo_frag_global))
 
 	color_target := sdl.GPUColorTargetInfo {
 		texture = swapchain_tex,
@@ -120,7 +145,8 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 		model_mat := linalg.matrix4_from_trs_f32(entity.position, entity.rotation, 1)
 
 		ubo := UBO {
-			mvp = proj_mat * view_mat * model_mat,
+			vp = proj_mat * view_mat,
+			m = model_mat,
 		}
 		sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
 		sdl.BindGPUGraphicsPipeline(render_pass, g.pipeline)
@@ -154,6 +180,11 @@ setup_pipeline :: proc() {
 			location = 2,
 			format = .FLOAT2,
 			offset = u32(offset_of(Vertex_Data, uv)),
+		},
+		{
+			location = 3,
+			format = .FLOAT3,
+			offset = u32(offset_of(Vertex_Data, normal)),
 		}
 	}
 
