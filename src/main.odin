@@ -60,7 +60,15 @@ init_sdl :: proc() {
 		num_levels = 1,
 	})
 
+	g.ui_input_mode = false
 	_ = sdl.SetWindowRelativeMouseMode(g.window, true)
+}
+
+set_ui_input_mode :: proc(new_mode: bool) {
+	if new_mode != g.ui_input_mode {
+		g.ui_input_mode = new_mode
+		_ = sdl.SetWindowRelativeMouseMode(g.window, !g.ui_input_mode)
+	}
 }
 
 init_imgui :: proc() {
@@ -100,32 +108,30 @@ main :: proc() {
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 
-		ui_input_mode := !sdl.GetWindowRelativeMouseMode(g.window)
-
 		// process events
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
-			if ui_input_mode do im_sdl.ProcessEvent(&ev)
+			if g.ui_input_mode do im_sdl.ProcessEvent(&ev)
 
 			#partial switch ev.type {
 				case .QUIT:
 					break main_loop
 				case .KEY_DOWN:
-					if ev.key.scancode == .ESCAPE && !im_io.WantCaptureKeyboard do break main_loop
-					if !ui_input_mode {
+					if !im_io.WantCaptureKeyboard {
+						if ev.key.scancode == .ESCAPE do break main_loop
+						if ev.key.scancode == .U do set_ui_input_mode(!g.ui_input_mode)
+					}
+					if !g.ui_input_mode {
 						g.key_down[ev.key.scancode] = true
 					}
 				case .KEY_UP:
 					g.key_down[ev.key.scancode] = false
 				case .MOUSE_MOTION:
-					if !ui_input_mode {
+					if !g.ui_input_mode {
 						g.mouse_move += {ev.motion.xrel, ev.motion.yrel}
 					}
 				case .MOUSE_BUTTON_DOWN:
-					if ev.button.button == 2 {
-						ui_input_mode = !ui_input_mode
-						_ = sdl.SetWindowRelativeMouseMode(g.window, !ui_input_mode)
-					}
+					if ev.button.button == 2 do set_ui_input_mode(!g.ui_input_mode)
 			}
 		}
 
