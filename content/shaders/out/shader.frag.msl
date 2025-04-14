@@ -8,6 +8,14 @@ struct type_Global
     float3 lightPosition;
     packed_float3 lightColor;
     float lightIntensity;
+    float3 viewPosition;
+    float3 ambientLightColor;
+};
+
+struct type_Local
+{
+    packed_float3 materialSpecularColor;
+    float materialShininess;
 };
 
 struct main0_out
@@ -17,26 +25,32 @@ struct main0_out
 
 struct main0_in
 {
+    float2 in_var_TEXCOORD1 [[user(locn1)]];
     float3 in_var_TEXCOORD2 [[user(locn2)]];
     float3 in_var_TEXCOORD3 [[user(locn3)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant type_Global& Global [[buffer(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant type_Global& Global [[buffer(0)]], constant type_Local& Local [[buffer(1)]], texture2d<float> diffuseMap [[texture(0)]], sampler smp [[sampler(0)]])
 {
     main0_out out = {};
-    float3 _31 = Global.lightPosition - in.in_var_TEXCOORD2;
-    float _32 = length(_31);
-    float _36 = dot(_31 / float3(_32), fast::normalize(in.in_var_TEXCOORD3));
-    float3 _50;
-    if (_36 > 0.0)
+    float3 _46 = Global.lightPosition - in.in_var_TEXCOORD2;
+    float _47 = length(_46);
+    float3 _49 = _46 / float3(_47);
+    float3 _54 = fast::normalize(in.in_var_TEXCOORD3);
+    float4 _58 = diffuseMap.sample(smp, in.in_var_TEXCOORD1);
+    float3 _59 = _58.xyz;
+    float3 _62 = Global.ambientLightColor * _59;
+    float _63 = dot(_49, _54);
+    float3 _89;
+    if (_63 > 0.0)
     {
-        _50 = ((float3(Global.lightColor) * Global.lightIntensity) * _36) * (1.0 / (_32 * _32));
+        _89 = _62 + ((((float3(Global.lightColor) * Global.lightIntensity) * _63) * (1.0 / (_47 * _47))) * (_59 + (float3(Local.materialSpecularColor) * powr(precise::max(0.0, dot(fast::normalize(_49 + fast::normalize(Global.viewPosition - in.in_var_TEXCOORD2)), _54)), Local.materialShininess))));
     }
     else
     {
-        _50 = float3(0.0);
+        _89 = _62;
     }
-    out.out_var_SV_Target0 = float4(_50, 1.0);
+    out.out_var_SV_Target0 = float4(_89, 1.0);
     return out;
 }
 
