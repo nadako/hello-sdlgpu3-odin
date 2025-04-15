@@ -69,8 +69,12 @@ Entity :: struct {
 }
 
 Game_State :: struct {
-	pipeline: ^sdl.GPUGraphicsPipeline,
-	sampler: ^sdl.GPUSampler,
+	entity_pipeline: ^sdl.GPUGraphicsPipeline,
+
+	light_shape_pipeline: ^sdl.GPUGraphicsPipeline,
+	light_shape_mesh: Mesh,
+
+	default_sampler: ^sdl.GPUSampler,
 
 	camera: struct {
 		position: Vec3,
@@ -81,7 +85,6 @@ Game_State :: struct {
 		pitch: f32,
 	},
 
-	clear_color: sdl.FColor,
 	rotate: bool,
 
 	models: []Model,
@@ -95,16 +98,29 @@ Game_State :: struct {
 
 game_init :: proc() {
 	setup_pipeline()
+	setup_light_shape_pipeline()
+
+	g.default_sampler = sdl.CreateGPUSampler(g.gpu, {
+		min_filter = .LINEAR,
+		mag_filter = .LINEAR,
+	})
 
 	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g.gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
 
+	g.light_shape_mesh = generate_box_mesh(copy_pass, 0.2, 0.2, 0.2)
+
 	colormap := load_texture_file(copy_pass, "colormap.png")
+	cobblestone := load_texture_file(copy_pass, "cobblestone_1.png")
+	prototype_texture := load_texture_file(copy_pass, "texture_01.png")
 
 	g.models = slice.clone([]Model {
 		{load_obj_file(copy_pass, "tractor-police.obj"), {diffuse_texture = colormap, specular_color = 0, specular_shininess = 1}},
 		{load_obj_file(copy_pass, "sedan-sports.obj"), {diffuse_texture = colormap, specular_color = 1, specular_shininess = 160}},
 		{load_obj_file(copy_pass, "ambulance.obj"), {diffuse_texture = colormap, specular_color = {1,0,0}, specular_shininess = 80}},
+
+		{generate_plane_mesh(copy_pass, 10, 10), {diffuse_texture = cobblestone, specular_color = 0, specular_shininess = 1}},
+		{generate_box_mesh(copy_pass, 1, 1, 1), {diffuse_texture = prototype_texture, specular_color = 1, specular_shininess = 100}},
 	})
 
 	sdl.EndGPUCopyPass(copy_pass)
@@ -125,12 +141,18 @@ game_init :: proc() {
 			model_id = 1,
 			position = {3,0,0},
 			rotation = linalg.quaternion_from_euler_angle_y_f32(15 * linalg.RAD_PER_DEG),
+		},
+		{
+			model_id = 3,
+		},
+		{
+			model_id = 4,
+			position = {3,0.5,3},
 		}
 	})
 
 	g.rotate = true
 
-	g.clear_color = 0
 	g.camera = {
 		position = {0, EYE_HEIGHT, 3},
 		target = {0, EYE_HEIGHT, 0}
@@ -145,7 +167,6 @@ game_init :: proc() {
 game_update :: proc(delta_time: f32) {
 	if im.Begin("Inspector") {
 		im.Checkbox("Rotate", &g.rotate)
-		im.ColorEdit3("Clear color", transmute(^[3]f32)&g.clear_color, {.Float})
 		im.ColorEdit3("Ambient Color", &g.ambient_light_color, {.Float})
 
 		im.SeparatorText("Light")
@@ -193,10 +214,12 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 	}
 	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &ubo_frag_global, size_of(ubo_frag_global))
 
+	clear_color: sdl.FColor = 1
+	clear_color.rgb = g.ambient_light_color
 	color_target := sdl.GPUColorTargetInfo {
 		texture = swapchain_tex,
 		load_op = .CLEAR,
-		clear_color = g.clear_color,
+		clear_color = clear_color,
 		store_op = .STORE
 	}
 	depth_target_info := sdl.GPUDepthStencilTargetInfo {
@@ -207,7 +230,18 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 	}
 	render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target_info)
 
-	sdl.BindGPUGraphicsPipeline(render_pass, g.pipeline)
+	{
+		sdl.BindGPUGraphicsPipeline(render_pass, g.light_shape_pipeline)
+
+		model_mat := linalg.matrix4_translate_f32(g.light_position)
+		sdl.PushGPUVertexUniformData(cmd_buf, 1, &model_mat, size_of(model_mat))
+
+		sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = g.light_shape_mesh.vertex_buf }), 1)
+		sdl.BindGPUIndexBuffer(render_pass, { buffer = g.light_shape_mesh.index_buf }, ._16BIT)
+		sdl.DrawGPUIndexedPrimitives(render_pass, g.light_shape_mesh.num_indices, 1, 0, 0, 0)
+	}
+
+	sdl.BindGPUGraphicsPipeline(render_pass, g.entity_pipeline)
 
 	for entity in g.entities {
 		model_mat := linalg.matrix4_from_trs_f32(entity.position, entity.rotation, 1)
@@ -230,7 +264,7 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 
 		sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = model.mesh.vertex_buf }), 1)
 		sdl.BindGPUIndexBuffer(render_pass, { buffer = model.mesh.index_buf }, ._16BIT)
-		sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = material.diffuse_texture, sampler = g.sampler}), 1)
+		sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = material.diffuse_texture, sampler = g.default_sampler}), 1)
 		sdl.DrawGPUIndexedPrimitives(render_pass, model.mesh.num_indices, 1, 0, 0, 0)
 	}
 
@@ -264,7 +298,7 @@ setup_pipeline :: proc() {
 		}
 	}
 
-	g.pipeline = sdl.CreateGPUGraphicsPipeline(g.gpu, {
+	g.entity_pipeline = sdl.CreateGPUGraphicsPipeline(g.gpu, {
 		vertex_shader = vert_shader,
 		fragment_shader = frag_shader,
 		primitive_type = .TRIANGLELIST,
@@ -298,8 +332,54 @@ setup_pipeline :: proc() {
 
 	sdl.ReleaseGPUShader(g.gpu, vert_shader)
 	sdl.ReleaseGPUShader(g.gpu, frag_shader)
+}
 
-	g.sampler = sdl.CreateGPUSampler(g.gpu, {})
+setup_light_shape_pipeline :: proc() {
+	vert_shader := load_shader(g.gpu, "lightshape.vert")
+	frag_shader := load_shader(g.gpu, "lightshape.frag")
+
+	vertex_attrs := []sdl.GPUVertexAttribute {
+		{
+			location = 0,
+			format = .FLOAT3,
+			offset = u32(offset_of(Vertex_Data, pos)),
+		},
+	}
+
+	g.light_shape_pipeline = sdl.CreateGPUGraphicsPipeline(g.gpu, {
+		vertex_shader = vert_shader,
+		fragment_shader = frag_shader,
+		primitive_type = .TRIANGLELIST,
+		vertex_input_state = {
+			num_vertex_buffers = 1,
+			vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
+				slot = 0,
+				pitch = size_of(Vertex_Data),
+			}),
+			num_vertex_attributes = u32(len(vertex_attrs)),
+			vertex_attributes = raw_data(vertex_attrs)
+		},
+		depth_stencil_state = {
+			enable_depth_test = true,
+			enable_depth_write = true,
+			compare_op = .LESS,
+		},
+		rasterizer_state = {
+			cull_mode = .BACK,
+			// fill_mode = .LINE,
+		},
+		target_info = {
+			num_color_targets = 1,
+			color_target_descriptions = &(sdl.GPUColorTargetDescription {
+				format = g.swapchain_texture_format,
+			}),
+			has_depth_stencil_target = true,
+			depth_stencil_format = g.depth_texture_format,
+		}
+	})
+
+	sdl.ReleaseGPUShader(g.gpu, vert_shader)
+	sdl.ReleaseGPUShader(g.gpu, frag_shader)
 }
 
 update_camera :: proc(dt: f32) {

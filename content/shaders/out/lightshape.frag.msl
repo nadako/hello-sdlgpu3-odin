@@ -1,0 +1,26 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct type_Global
+{
+    float3 lightPosition;
+    packed_float3 lightColor;
+    float lightIntensity;
+    float3 viewPosition;
+    float3 ambientLightColor;
+};
+
+struct main0_out
+{
+    float4 out_var_SV_Target0 [[color(0)]];
+};
+
+fragment main0_out main0(constant type_Global& Global [[buffer(0)]])
+{
+    main0_out out = {};
+    out.out_var_SV_Target0 = float4(float3(Global.lightColor) * Global.lightIntensity, 1.0);
+    return out;
+}
+
