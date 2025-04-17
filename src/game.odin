@@ -94,11 +94,16 @@ Game_State :: struct {
 	light_color: Vec3,
 	light_intensity: f32,
 	ambient_light_color: Vec3,
+
+	test_cubemap_mesh: Mesh,
+	test_cubemap_tex: ^sdl.GPUTexture,
+	test_cubemap_pipeline: ^sdl.GPUGraphicsPipeline,
 }
 
 game_init :: proc() {
 	setup_pipeline()
 	setup_light_shape_pipeline()
+	setup_test_cubemap_pipeline()
 
 	g.default_sampler = sdl.CreateGPUSampler(g.gpu, {
 		min_filter = .LINEAR,
@@ -113,6 +118,16 @@ game_init :: proc() {
 	colormap := load_texture_file(copy_pass, "colormap.png")
 	cobblestone := load_texture_file(copy_pass, "cobblestone_1.png")
 	prototype_texture := load_texture_file(copy_pass, "texture_01.png")
+
+	g.test_cubemap_mesh = generate_box_mesh(copy_pass, 0.5, 0.5, 0.5)
+	g.test_cubemap_tex = load_cubemap_texture_files(copy_pass, {
+		.POSITIVEX = "skybox/right.png",
+		.NEGATIVEX = "skybox/left.png",
+		.POSITIVEY = "skybox/top.png",
+		.NEGATIVEY = "skybox/bottom.png",
+		.POSITIVEZ = "skybox/front.png",
+		.NEGATIVEZ = "skybox/back.png",
+	})
 
 	g.models = slice.clone([]Model {
 		{load_obj_file(copy_pass, "tractor-police.obj"), {diffuse_texture = colormap, specular_color = 0, specular_shininess = 1}},
@@ -241,6 +256,18 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 		sdl.DrawGPUIndexedPrimitives(render_pass, g.light_shape_mesh.num_indices, 1, 0, 0, 0)
 	}
 
+	{
+		sdl.BindGPUGraphicsPipeline(render_pass, g.test_cubemap_pipeline)
+
+		model_mat := linalg.matrix4_translate_f32({-3, 0.5, 3})
+		sdl.PushGPUVertexUniformData(cmd_buf, 1, &model_mat, size_of(model_mat))
+
+		sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding {texture = g.test_cubemap_tex, sampler = g.default_sampler}), 1)
+		sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding { buffer = g.test_cubemap_mesh.vertex_buf }), 1)
+		sdl.BindGPUIndexBuffer(render_pass, { buffer = g.test_cubemap_mesh.index_buf }, ._16BIT)
+		sdl.DrawGPUIndexedPrimitives(render_pass, g.test_cubemap_mesh.num_indices, 1, 0, 0, 0)
+	}
+
 	sdl.BindGPUGraphicsPipeline(render_pass, g.entity_pipeline)
 
 	for entity in g.entities {
@@ -271,6 +298,7 @@ game_render :: proc(cmd_buf: ^sdl.GPUCommandBuffer, swapchain_tex: ^sdl.GPUTextu
 	sdl.EndGPURenderPass(render_pass)
 }
 
+// TODO: unify and abstract pipeline creation
 setup_pipeline :: proc() {
 	vert_shader := load_shader(g.gpu, "shader.vert")
 	frag_shader := load_shader(g.gpu, "shader.frag")
@@ -318,6 +346,54 @@ setup_pipeline :: proc() {
 		},
 		rasterizer_state = {
 			cull_mode = .BACK,
+			// fill_mode = .LINE,
+		},
+		target_info = {
+			num_color_targets = 1,
+			color_target_descriptions = &(sdl.GPUColorTargetDescription {
+				format = g.swapchain_texture_format,
+			}),
+			has_depth_stencil_target = true,
+			depth_stencil_format = g.depth_texture_format,
+		}
+	})
+
+	sdl.ReleaseGPUShader(g.gpu, vert_shader)
+	sdl.ReleaseGPUShader(g.gpu, frag_shader)
+}
+
+setup_test_cubemap_pipeline :: proc() {
+	vert_shader := load_shader(g.gpu, "cubemap.vert")
+	frag_shader := load_shader(g.gpu, "cubemap.frag")
+
+	vertex_attrs := []sdl.GPUVertexAttribute {
+		{
+			location = 0,
+			format = .FLOAT3,
+			offset = u32(offset_of(Vertex_Data, pos)),
+		},
+	}
+
+	g.test_cubemap_pipeline = sdl.CreateGPUGraphicsPipeline(g.gpu, {
+		vertex_shader = vert_shader,
+		fragment_shader = frag_shader,
+		primitive_type = .TRIANGLELIST,
+		vertex_input_state = {
+			num_vertex_buffers = 1,
+			vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
+				slot = 0,
+				pitch = size_of(Vertex_Data),
+			}),
+			num_vertex_attributes = u32(len(vertex_attrs)),
+			vertex_attributes = raw_data(vertex_attrs)
+		},
+		depth_stencil_state = {
+			enable_depth_test = true,
+			enable_depth_write = true,
+			compare_op = .LESS,
+		},
+		rasterizer_state = {
+			cull_mode = .FRONT,
 			// fill_mode = .LINE,
 		},
 		target_info = {
