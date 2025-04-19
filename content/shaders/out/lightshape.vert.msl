@@ -6,6 +6,8 @@ using namespace metal;
 struct type_Global
 {
     float4x4 viewProjectionMat;
+    float4x4 invViewMat;
+    float4x4 invProjectionMat;
 };
 
 struct type_Local

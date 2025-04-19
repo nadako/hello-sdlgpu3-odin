@@ -1,3 +1,5 @@
+#include "common.hlsl"
+
 struct Input {
 	float3 texCoords : TEXCOORD0;
 };

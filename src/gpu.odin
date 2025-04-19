@@ -77,6 +77,86 @@ upload_cubemap_texture_sides :: proc(copy_pass: ^sdl.GPUCopyPass, pixels: [sdl.G
 	return texture
 }
 
+upload_cubemap_texture_single :: proc(copy_pass: ^sdl.GPUCopyPass, pixels: []byte, width, height: u32) -> ^sdl.GPUTexture {
+	/*
+	 The cubemap images are layed out in a single texture like this:
+
+	  t
+	 lfrb
+	  b
+
+	 there are 3 rows and 4 columns
+	 1st row contains top image at the 2nd column
+	 2nd row contains left->front->right->bottom images (so all 4 columns used)
+	 3rd row contains bottom image at the 2nd column
+
+	 hence the size of the cube texture (side) is actually w/4 or h/3 (must be the same)
+	*/
+	CUBE_COLS :: 4
+	CUBE_ROWS :: 3
+
+	size := width / CUBE_COLS
+	assert(width == size * CUBE_COLS)
+	assert(height == size * CUBE_ROWS)
+
+	texture := sdl.CreateGPUTexture(g.gpu, {
+		type = .CUBE,
+		format = .R8G8B8A8_UNORM_SRGB, // pixels are in sRGB, converted to linear in shaders
+		usage = {.SAMPLER},
+		width = size,
+		height = size,
+		layer_count_or_depth = 6,
+		num_levels = 1,
+	})
+
+	tex_transfer_buf := sdl.CreateGPUTransferBuffer(g.gpu, {
+		usage = .UPLOAD,
+		size = u32(len(pixels))
+	})
+	tex_transfer_mem := sdl.MapGPUTransferBuffer(g.gpu, tex_transfer_buf, false)
+	mem.copy(tex_transfer_mem, raw_data(pixels), len(pixels))
+	sdl.UnmapGPUTransferBuffer(g.gpu, tex_transfer_buf)
+
+	for side in sdl.GPUCubeMapFace {
+		row, col: u32
+		switch side {
+			case .POSITIVEX: row, col = 1, 2
+			case .NEGATIVEX: row, col = 1, 0
+			case .POSITIVEY: row, col = 0, 1
+			case .NEGATIVEY: row, col = 2, 1
+			case .POSITIVEZ: row, col = 1, 1
+			case .NEGATIVEZ: row, col = 1, 3
+		}
+
+		BYTES_PER_PIXEL :: 4
+
+		cube_row_byte_size := width * size * BYTES_PER_PIXEL
+
+		offset := cube_row_byte_size * row
+		offset += size * BYTES_PER_PIXEL * col
+
+		sdl.UploadToGPUTexture(copy_pass,
+			{
+				transfer_buffer = tex_transfer_buf,
+				offset = offset,
+				pixels_per_row = width,
+			},
+			{
+				texture = texture,
+				layer = u32(side),
+				w = size,
+				h = size,
+				d = 1
+			},
+			false
+		)
+	}
+
+	sdl.ReleaseGPUTransferBuffer(g.gpu, tex_transfer_buf)
+
+	return texture
+}
+
 upload_mesh :: proc(copy_pass: ^sdl.GPUCopyPass, vertices: []$T, indices: []$S) -> Mesh {
 	return upload_mesh_bytes(copy_pass, slice.to_bytes(vertices), slice.to_bytes(indices), len(indices))
 }

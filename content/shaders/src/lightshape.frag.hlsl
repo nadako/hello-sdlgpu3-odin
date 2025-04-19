@@ -1,10 +1,4 @@
-cbuffer Global : register(b0, space3) {
-	float3 lightPosition;
-	float3 lightColor;
-	float lightIntensity;
-	float3 viewPosition;
-	float3 ambientLightColor;
-};
+#include "common.hlsl"
 
 struct Input {
 };

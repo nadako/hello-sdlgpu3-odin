@@ -31,6 +31,13 @@ load_texture_file :: proc(copy_pass: ^sdl.GPUCopyPass, texture_file: string) -> 
 	return texture
 }
 
+load_cubemap_texture_single :: proc(copy_pass: ^sdl.GPUCopyPass, texture_file: string) -> ^sdl.GPUTexture {
+	pixels, img_size := load_pixels(texture_file)
+	texture := upload_cubemap_texture_single(copy_pass, pixels, img_size.x, img_size.y)
+	free_pixels(pixels)
+	return texture
+}
+
 load_cubemap_texture_files :: proc(copy_pass: ^sdl.GPUCopyPass, texture_files: [sdl.GPUCubeMapFace]string) -> ^sdl.GPUTexture {
 	pixels: [sdl.GPUCubeMapFace][]byte
 	size: u32

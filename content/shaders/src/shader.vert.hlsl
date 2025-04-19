@@ -1,6 +1,4 @@
-cbuffer Global : register(b0, space1) {
-	float4x4 viewProjectionMat;
-};
+#include "common.hlsl"
 
 cbuffer Local : register(b1, space1) {
 	float4x4 modelMat;
